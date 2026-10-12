@@ -9,7 +9,7 @@ struct PianoNote: Identifiable {
 }
 
 struct ContentView: View {
-    @StateObject private var audio = PianoAudioEngine()
+    private let audio = PianoAudioEngine()
 
     private let whiteNotes: [PianoNote] = [
         PianoNote(name: "C", frequency: 261.63, isBlack: false, leadingWhiteKey: 0),

@@ -1,4 +1,4 @@
-// swift-tools-version: 5.8
+// swift-tools-version: 5.7
 
 import PackageDescription
 import AppleProductTypes
@@ -15,7 +15,7 @@ let package = Package(
             bundleIdentifier: "com.cdantonio.piano",
             displayVersion: "1.0",
             bundleVersion: "1",
-            appIcon: .placeholder(icon: .note),
+            appIcon: .placeholder(icon: .palette),
             accentColor: .presetColor(.teal),
             supportedDeviceFamilies: [
                 .pad,
@@ -26,8 +26,7 @@ let package = Package(
                 .landscapeRight,
                 .landscapeLeft,
                 .portraitUpsideDown(.when(deviceFamilies: [.pad]))
-            ],
-            appCategory: .music
+            ]
         )
     ],
     targets: [

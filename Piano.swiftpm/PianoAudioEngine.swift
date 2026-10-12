@@ -1,17 +1,13 @@
 import AVFoundation
-import Combine
 
-final class PianoAudioEngine: ObservableObject {
+final class PianoAudioEngine {
     private let engine = AVAudioEngine()
     private let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
     private var players: [AVAudioPlayerNode] = []
-
-    init() {
-        configureAudioSession()
-        startEngine()
-    }
+    private var audioSessionIsConfigured = false
 
     func play(frequency: Double) {
+        configureAudioSession()
         startEngine()
 
         let player = AVAudioPlayerNode()
@@ -35,6 +31,8 @@ final class PianoAudioEngine: ObservableObject {
     }
 
     private func configureAudioSession() {
+        guard !audioSessionIsConfigured else { return }
+
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
 
@@ -45,6 +43,8 @@ final class PianoAudioEngine: ObservableObject {
             print("Unable to configure audio session: \(error)")
         }
         #endif
+
+        audioSessionIsConfigured = true
     }
 
     private func startEngine() {
