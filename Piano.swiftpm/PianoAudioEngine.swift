@@ -1,108 +1,102 @@
 import AVFoundation
+import Foundation
 
-final class PianoAudioEngine {
-    private let engine = AVAudioEngine()
-    private let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
-    private var players: [AVAudioPlayerNode] = []
-    private var audioSessionIsConfigured = false
+final class PianoAudioEngine: NSObject, AVAudioPlayerDelegate {
+    private let sampleRate = 44_100
+    private let duration = 1.0
+    private var players: [AVAudioPlayer] = []
 
     func play(frequency: Double) {
-        configureAudioSession()
-        startEngine()
-
-        let player = AVAudioPlayerNode()
-        let buffer = makeBuffer(frequency: frequency)
-
-        engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: format)
-        players.append(player)
-
-        player.scheduleBuffer(buffer, at: nil, options: []) { [weak self, weak player] in
-            guard let self, let player else { return }
-
-            DispatchQueue.main.async {
-                player.stop()
-                self.engine.detach(player)
-                self.players.removeAll { $0 === player }
-            }
-        }
-
-        player.play()
-    }
-
-    private func configureAudioSession() {
-        guard !audioSessionIsConfigured else { return }
-
-        #if os(iOS)
-        let session = AVAudioSession.sharedInstance()
-
         do {
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true)
+            let data = makeWAVData(frequency: frequency)
+            let player = try AVAudioPlayer(data: data)
+
+            player.delegate = self
+            player.prepareToPlay()
+            players.append(player)
+            player.play()
         } catch {
-            print("Unable to configure audio session: \(error)")
-        }
-        #endif
-
-        audioSessionIsConfigured = true
-    }
-
-    private func startEngine() {
-        guard !engine.isRunning else { return }
-
-        do {
-            try engine.start()
-        } catch {
-            print("Unable to start audio engine: \(error)")
+            print("Unable to play note: \(error)")
         }
     }
 
-    private func makeBuffer(frequency: Double) -> AVAudioPCMBuffer {
-        let sampleRate = format.sampleRate
-        let duration = 1.35
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        players.removeAll { $0 === player }
+    }
 
-        buffer.frameLength = frameCount
+    private func makeWAVData(frequency: Double) -> Data {
+        let frameCount = Int(Double(sampleRate) * duration)
+        var samples = Data(capacity: frameCount * 2)
 
-        guard let samples = buffer.floatChannelData?[0] else {
-            return buffer
-        }
-
-        for frame in 0..<Int(frameCount) {
-            let time = Double(frame) / sampleRate
-            let envelope = amplitudeEnvelope(at: time, duration: duration)
+        for frame in 0..<frameCount {
+            let time = Double(frame) / Double(sampleRate)
+            let envelope = amplitudeEnvelope(at: time)
             let tone = pianoTone(frequency: frequency, time: time)
-            samples[frame] = Float(tone * envelope * 0.55)
+            let sample = Int16(max(-1, min(1, tone * envelope * 0.45)) * Double(Int16.max))
+
+            appendLittleEndian(sample, to: &samples)
         }
 
-        return buffer
+        var wavData = wavHeader(dataByteCount: samples.count)
+        wavData.append(samples)
+
+        return wavData
+    }
+
+    private func wavHeader(dataByteCount: Int) -> Data {
+        var data = Data()
+        let byteRate = sampleRate * 2
+        let riffSize = UInt32(36 + dataByteCount)
+
+        data.append(contentsOf: "RIFF".utf8)
+        appendLittleEndian(riffSize, to: &data)
+        data.append(contentsOf: "WAVE".utf8)
+        data.append(contentsOf: "fmt ".utf8)
+        appendLittleEndian(UInt32(16), to: &data)
+        appendLittleEndian(UInt16(1), to: &data)
+        appendLittleEndian(UInt16(1), to: &data)
+        appendLittleEndian(UInt32(sampleRate), to: &data)
+        appendLittleEndian(UInt32(byteRate), to: &data)
+        appendLittleEndian(UInt16(2), to: &data)
+        appendLittleEndian(UInt16(16), to: &data)
+        data.append(contentsOf: "data".utf8)
+        appendLittleEndian(UInt32(dataByteCount), to: &data)
+
+        return data
     }
 
     private func pianoTone(frequency: Double, time: Double) -> Double {
         let fundamental = sin(2 * .pi * frequency * time)
-        let second = 0.34 * sin(2 * .pi * frequency * 2.01 * time)
-        let third = 0.16 * sin(2 * .pi * frequency * 3.02 * time)
-        let fourth = 0.08 * sin(2 * .pi * frequency * 4.04 * time)
+        let second = 0.32 * sin(2 * .pi * frequency * 2.01 * time)
+        let third = 0.14 * sin(2 * .pi * frequency * 3.02 * time)
+        let fourth = 0.07 * sin(2 * .pi * frequency * 4.04 * time)
 
         return fundamental + second + third + fourth
     }
 
-    private func amplitudeEnvelope(at time: Double, duration: Double) -> Double {
+    private func amplitudeEnvelope(at time: Double) -> Double {
         let attack = 0.012
 
         if time < attack {
             return time / attack
         }
 
-        let decay = exp(-3.8 * (time - attack))
-        let releaseStart = duration * 0.78
+        return exp(-4.2 * (time - attack))
+    }
 
-        if time > releaseStart {
-            let releaseProgress = min((time - releaseStart) / (duration - releaseStart), 1)
-            return decay * (1 - releaseProgress)
-        }
+    private func appendLittleEndian(_ value: UInt16, to data: inout Data) {
+        data.append(UInt8(value & 0xff))
+        data.append(UInt8((value >> 8) & 0xff))
+    }
 
-        return decay
+    private func appendLittleEndian(_ value: Int16, to data: inout Data) {
+        appendLittleEndian(UInt16(bitPattern: value), to: &data)
+    }
+
+    private func appendLittleEndian(_ value: UInt32, to data: inout Data) {
+        data.append(UInt8(value & 0xff))
+        data.append(UInt8((value >> 8) & 0xff))
+        data.append(UInt8((value >> 16) & 0xff))
+        data.append(UInt8((value >> 24) & 0xff))
     }
 }
