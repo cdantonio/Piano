@@ -5,16 +5,24 @@ final class PianoAudioEngine: NSObject, AVAudioPlayerDelegate {
     private let sampleRate = 44_100
     private let duration = 1.0
     private var players: [AVAudioPlayer] = []
+    private var audioSessionIsConfigured = false
 
     func play(frequency: Double) {
+        configureAudioSession()
+
         do {
             let data = makeWAVData(frequency: frequency)
             let player = try AVAudioPlayer(data: data)
 
             player.delegate = self
+            player.volume = 1
             player.prepareToPlay()
             players.append(player)
-            player.play()
+
+            if !player.play() {
+                players.removeAll { $0 === player }
+                print("Unable to start note playback.")
+            }
         } catch {
             print("Unable to play note: \(error)")
         }
@@ -22,6 +30,29 @@ final class PianoAudioEngine: NSObject, AVAudioPlayerDelegate {
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         players.removeAll { $0 === player }
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        players.removeAll { $0 === player }
+        print("Unable to decode note audio: \(error?.localizedDescription ?? "Unknown error")")
+    }
+
+    private func configureAudioSession() {
+        guard !audioSessionIsConfigured else { return }
+
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+
+        do {
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+            audioSessionIsConfigured = true
+        } catch {
+            print("Unable to configure audio session: \(error)")
+        }
+        #else
+        audioSessionIsConfigured = true
+        #endif
     }
 
     private func makeWAVData(frequency: Double) -> Data {
